@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+### The Midnight Coven — Interactive Bar Menu
 
-## Getting Started
+Halloween-themed, interactive nightclub menu built with Next.js 15 (App Router) and Tailwind CSS 4. Features category tabs, search and filters, Strong/Medium/Light strength sorting, favorites with localStorage, neon primary CTA, and subtle spooky ambience.
 
-First, run the development server:
+### Features
+
+- Neon primary call-to-action only (Order at the Bar)
+- Category tabs (All, Signature Cocktails, Classics, Shots, Zero Proof, Seasonal Bites)
+- Search potions, bites, spirits by name/description/tags
+- Strength filter (All, Light, Medium, Strong)
+- Alcoholic-only and Favorites-only toggles
+- Local favorites persistence (localStorage)
+- Static SVG icons (pumpkin, skull) — no external image APIs required
+
+### Tech
+
+- Next.js 15 (App Router, React 19)
+- Tailwind CSS 4 (@tailwindcss/postcss)
+- TypeScript
+
+### Local Development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Visit `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Production Build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+npm start
+```
 
-## Learn More
+### Project Structure
 
-To learn more about Next.js, take a look at the following resources:
+- `src/app/page.tsx` — main interactive menu page
+- `src/components/*` — UI components (NeonButton, FilterBar, MenuItemCard)
+- `src/data/menu.ts` — seed menu data
+- `src/types/menu.ts` — types
+- `src/hooks/useLocalStorage.ts` — favorites persistence
+- `src/app/globals.css` — global Halloween theme and effects
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Deploy to Vercel (Git Integration — Recommended)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Repo: `https://github.com/huntrbrooks/halloween-bar-menu` is ready.
+2. In Vercel Dashboard, click New Project → Import Git Repository → select `halloween-bar-menu`.
+3. Framework preset: Next.js. Build and output defaults are auto-detected.
+4. Deploy. Every commit to `main` will auto-deploy.
 
-## Deploy on Vercel
+### Deploy to Vercel (CLI — Optional)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+If you prefer CLI and have a Vercel token:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# Create a token in Vercel Account Settings → Tokens
+export VERCEL_TOKEN=YOUR_TOKEN
+vercel link --yes --token "$VERCEL_TOKEN"
+vercel deploy --prod --yes --token "$VERCEL_TOKEN"
+```
+
+If a device login prompt appears, visit the shown URL, complete auth, then rerun deploy.
+
+### Accessibility & Notes
+
+- Interactive controls have accessible labels and clear focus styles
+- Favorites are local to the device (no accounts or servers)
+- No API keys stored or required
+
+### License
+
+Apache-2.0 (or update as desired)
