@@ -12,7 +12,8 @@ export function PumpkinSmashGame() {
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const [level, setLevel] = useState<number>(1);
   const [score, setScore] = useState<number>(0);
-  const [shots, setShots] = useState<number>(0);
+  const [shotsTaken, setShotsTaken] = useState<number>(0);
+  const [lost, setLost] = useState<boolean>(false);
   const [won, setWon] = useState<boolean>(false);
   const [resetTick, setResetTick] = useState<number>(0);
   const cratesRemainingRef = useRef<number>(0);
@@ -91,6 +92,7 @@ export function PumpkinSmashGame() {
     World.add(world, crates);
     cratesRemainingRef.current = crates.length;
     setWon(false);
+    setLost(false);
 
     // Slingshot pumpkin
     const slingAnchor = { x: size.width * 0.18, y: size.height * 0.72 };
@@ -138,43 +140,54 @@ export function PumpkinSmashGame() {
       if (e.body === pumpkin && (elastic as any).bodyB === pumpkin) {
         setTimeout(() => {
           (elastic as any).bodyB = null;
-          setShots((s) => s + 1);
+          setShotsTaken((s) => s + 1);
           playLaunch();
         }, 20);
       }
     });
 
-    // On collision, damage crates
+    // On collision, damage crates - only when hit by pumpkin with sufficient speed
+    const DAMAGE_SPEED_THRESHOLD = 2.6;
     Events.on(engine, "collisionStart", (ev: IEventCollision<Engine>) => {
       for (const pair of ev.pairs) {
-        const bodies = [pair.bodyA, pair.bodyB];
-        for (const b of bodies) {
-          if ((crates as Body[]).includes(b)) {
-            (b as any).health = Math.max(0, ((b as any).health ?? 3) - 1);
-            if ((b as any).health === 0) {
-              // remove broken crate
-              World.remove(world, b);
-              setScore((sc) => sc + 100);
-              cratesRemainingRef.current -= 1;
-              playHit();
-              if (cratesRemainingRef.current <= 0 && !won) {
-                setWon(true);
-                playWin();
-                setBestScores((prev) => {
-                  const key = String(level);
-                  const prior = prev[key] ?? 0;
-                  if (score + 100 > prior) {
-                    return { ...prev, [key]: score + 100 };
-                  }
-                  return prev;
-                });
-              }
-            } else {
-              // visual feedback by tinting
-              const t = (b as any).health;
-              (b as any).render.fillStyle = t === 2 ? "#8a6a3e" : "#aa8d63";
+        const a = pair.bodyA;
+        const b = pair.bodyB;
+        const involvesPumpkin = a === pumpkin || b === pumpkin;
+        if (!involvesPumpkin) continue;
+        const other = a === pumpkin ? b : a;
+        if (!(crates as Body[]).includes(other)) continue;
+
+        const relativeVx = (pumpkin.velocity?.x ?? 0) - (other.velocity?.x ?? 0);
+        const relativeVy = (pumpkin.velocity?.y ?? 0) - (other.velocity?.y ?? 0);
+        const relativeSpeed = Math.hypot(relativeVx, relativeVy);
+        if (relativeSpeed < DAMAGE_SPEED_THRESHOLD) continue;
+
+        const currentHealth = (other as any).health ?? 3;
+        const newHealth = Math.max(0, currentHealth - 1);
+        (other as any).health = newHealth;
+        if (newHealth === 0) {
+          World.remove(world, other);
+          cratesRemainingRef.current -= 1;
+          playHit();
+          setScore((sc) => {
+            const nextScore = sc + 100;
+            if (cratesRemainingRef.current <= 0 && !won) {
+              setWon(true);
+              playWin();
+              setBestScores((prev) => {
+                const key = String(level);
+                const prior = prev[key] ?? 0;
+                if (nextScore > prior) {
+                  return { ...prev, [key]: nextScore };
+                }
+                return prev;
+              });
             }
-          }
+            return nextScore;
+          });
+        } else {
+          const t = (other as any).health;
+          (other as any).render.fillStyle = t === 2 ? "#8a6a3e" : "#aa8d63";
         }
       }
     });
@@ -193,6 +206,50 @@ export function PumpkinSmashGame() {
       }
     }
     window.addEventListener("keydown", handleKey);
+
+    // Auto-reload logic and loss detection
+    const REST_SPEED_THRESHOLD = 0.15;
+    let restFrames = 0;
+    Events.on(engine, "afterUpdate", () => {
+      const elasticHasProjectile = Boolean((elastic as any).bodyB);
+      if (elasticHasProjectile || won || lost) {
+        restFrames = 0;
+        return;
+      }
+      const offscreen = pumpkin.position.x < -60 || pumpkin.position.x > size.width + 60 || pumpkin.position.y < -60 || pumpkin.position.y > size.height + 60;
+      const slow = (pumpkin as any).speed !== undefined ? (pumpkin as any).speed < REST_SPEED_THRESHOLD : Math.hypot(pumpkin.velocity.x, pumpkin.velocity.y) < REST_SPEED_THRESHOLD;
+      if (offscreen) {
+        // Attempt reload if shots remain, otherwise mark loss
+        const shotsPerLevel = Math.min(5, 3 + Math.floor((level - 1) / 2));
+        const shotsLeft = shotsPerLevel - shotsTaken;
+        if (shotsLeft > 0) {
+          Body.setPosition(pumpkin, { x: slingAnchor.x + 2, y: slingAnchor.y });
+          Body.setVelocity(pumpkin, { x: 0, y: 0 });
+          (elastic as any).bodyB = pumpkin;
+        } else if (cratesRemainingRef.current > 0) {
+          setLost(true);
+        }
+        restFrames = 0;
+        return;
+      }
+      if (slow) {
+        restFrames += 1;
+      } else {
+        restFrames = 0;
+      }
+      if (restFrames > 30) {
+        const shotsPerLevel = Math.min(5, 3 + Math.floor((level - 1) / 2));
+        const shotsLeft = shotsPerLevel - shotsTaken;
+        if (shotsLeft > 0) {
+          Body.setPosition(pumpkin, { x: slingAnchor.x + 2, y: slingAnchor.y });
+          Body.setVelocity(pumpkin, { x: 0, y: 0 });
+          (elastic as any).bodyB = pumpkin;
+        } else if (cratesRemainingRef.current > 0) {
+          setLost(true);
+        }
+        restFrames = 0;
+      }
+    });
 
     // Cleanup
     return () => {
@@ -269,15 +326,18 @@ export function PumpkinSmashGame() {
             <div className="rounded-md bg-black/30 px-3 py-1 text-[13px]">Level {level}</div>
             <div className="rounded-md bg-black/30 px-3 py-1 text-[13px]">Score {score}</div>
             <div className="rounded-md bg-black/30 px-3 py-1 text-[13px]">Best {(bestScores[String(level)] ?? 0)}</div>
-            <div className="rounded-md bg-black/30 px-3 py-1 text-[13px]">Shots {shots}</div>
+            <div className="rounded-md bg-black/30 px-3 py-1 text-[13px]">
+              Shots {shotsTaken}/{Math.min(5, 3 + Math.floor((level - 1) / 2))}
+            </div>
           </div>
           <div className="pointer-events-auto flex items-center justify-end gap-2">
             <button
               className="rounded-md border border-white/20 bg-black/40 px-3 py-1.5 text-[13px] text-white/90 hover:bg-black/50"
               onClick={() => {
-                setShots(0);
+                setShotsTaken(0);
                 setScore(0);
                 setWon(false);
+                setLost(false);
                 setResetTick((t) => t + 1);
               }}
             >
@@ -286,9 +346,10 @@ export function PumpkinSmashGame() {
             <NeonButton
               label="Next Level"
               onClick={() => {
-                setShots(0);
+                setShotsTaken(0);
                 setScore(0);
                 setWon(false);
+                setLost(false);
                 setLevel((lv) => lv + 1);
               }}
             />
@@ -304,9 +365,10 @@ export function PumpkinSmashGame() {
                 <button
                   className="rounded-md border border-white/20 bg-black/40 px-3 py-1.5 text-[13px] text-white/90 hover:bg-black/50"
                   onClick={() => {
-                    setShots(0);
+                    setShotsTaken(0);
                     setScore(0);
                     setWon(false);
+                    setLost(false);
                     setResetTick((t) => t + 1);
                   }}
                 >
@@ -315,12 +377,36 @@ export function PumpkinSmashGame() {
                 <NeonButton
                   label="Next Level"
                   onClick={() => {
-                    setShots(0);
+                    setShotsTaken(0);
                     setScore(0);
                     setWon(false);
+                    setLost(false);
                     setLevel((lv) => lv + 1);
                   }}
                 />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {lost && !won && (
+          <div className="pointer-events-auto absolute inset-0 flex items-center justify-center">
+            <div className="rounded-xl border border-white/15 bg-black/70 p-5 text-center backdrop-blur-md">
+              <div className="mb-2 text-[18px] font-semibold text-white">Level Failed</div>
+              <div className="mb-4 text-[14px] text-white/80">Out of pumpkins. Try again?</div>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  className="rounded-md border border-white/20 bg-black/40 px-3 py-1.5 text-[13px] text-white/90 hover:bg-black/50"
+                  onClick={() => {
+                    setShotsTaken(0);
+                    setScore(0);
+                    setWon(false);
+                    setLost(false);
+                    setResetTick((t) => t + 1);
+                  }}
+                >
+                  Retry Level
+                </button>
               </div>
             </div>
           </div>
