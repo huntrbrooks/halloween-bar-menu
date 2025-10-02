@@ -52,3 +52,4 @@ export function MenuItemCard({ item, isFavorite, onToggleFavorite }: MenuItemCar
 }
 
 
+

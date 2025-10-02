@@ -6,6 +6,7 @@ import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { MenuItemCard } from "@/components/MenuItemCard";
 import { NeonButton } from "@/components/NeonButton";
 import { FilterBar } from "@/components/FilterBar";
+import { PumpkinSmashGame } from "@/components/PumpkinSmashGame";
 
 export default function Home() {
   const [search, setSearch] = useState("");
@@ -13,6 +14,7 @@ export default function Home() {
   const [alcoholicOnly, setAlcoholicOnly] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favoriteIds, setFavoriteIds] = useLocalStorage<string[]>("favorites", []);
+  const [bestScores] = useLocalStorage<Record<string, number>>("pumpkinBestScores", {} as Record<string, number>);
 
   const categories = useMemo(
     () => Array.from(new Set(menuItems.map((m) => m.category))),
@@ -89,6 +91,35 @@ export default function Home() {
         showFavoritesOnly={favoritesOnly}
         onFavoritesOnly={setFavoritesOnly}
       />
+
+      <section className="mt-6">
+        <div className="rounded-xl border border-white/10 bg-black/30 p-4 md:p-5">
+          <PumpkinSmashGame />
+        </div>
+      </section>
+
+      {Object.keys(bestScores).length > 0 && (
+        <section className="mt-4">
+          <div className="rounded-xl border border-white/10 bg-black/30 p-4 md:p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-white/90 text-[16px] tracking-wide">High Scores</h3>
+              <span className="text-white/50 text-[12px]">Best per level (local)</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+              {Object.entries(bestScores)
+                .sort((a, b) => Number(a[0]) - Number(b[0]))
+                .map(([lvl, sc]) => (
+                  <div key={lvl} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                    <div className="flex items-center justify-between text-[14px]">
+                      <span className="text-white/80">Level {lvl}</span>
+                      <span className="text-white">{sc}</span>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
         {filtered.map((item) => (
