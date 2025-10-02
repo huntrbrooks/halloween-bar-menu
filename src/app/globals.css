@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #08050b;
+  --foreground: #ece8ff;
+  --color-neon: #39ff14; /* primary CTA neon */
+  --halloween-purple: #3a0a4a;
+  --halloween-orange: #ff6a00;
 }
 
 @theme inline {
@@ -12,15 +15,35 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Keep same vars in dark mode for consistent club vibe */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #08050b;
+    --foreground: #ece8ff;
   }
 }
 
 body {
-  background: var(--background);
+  background: radial-gradient(1200px 600px at 80% -20%, rgba(255, 106, 0, 0.15), transparent 70%),
+    radial-gradient(1000px 500px at 10% 0%, rgba(112, 0, 255, 0.15), transparent 70%),
+    linear-gradient(180deg, #09030f 0%, #0b0a12 100%);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI,
+    Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+/* Subtle fog overlay */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -10% -10% -10% -10%;
+  pointer-events: none;
+  background: radial-gradient(60% 40% at 50% 50%, rgba(255,255,255,0.06), transparent 60%);
+  filter: blur(20px) saturate(90%);
+  animation: drift 20s ease-in-out infinite alternate;
+}
+
+@keyframes drift {
+  0% { transform: translate3d(-2%, -1%, 0) scale(1); }
+  100% { transform: translate3d(2%, 1%, 0) scale(1.02); }
 }
