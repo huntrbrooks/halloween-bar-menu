@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import Matter, { Engine, Render, Runner, World, Bodies, Body, Constraint, Events, IEventCollision } from "matter-js";
+import Matter, { Engine, Render, Runner, World, Bodies, Body, Events, IEventCollision, Composite } from "matter-js";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { NeonButton } from "@/components/NeonButton";
 
@@ -12,13 +12,16 @@ export function PumpkinSmashGame() {
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const [level, setLevel] = useState<number>(1);
   const [score, setScore] = useState<number>(0);
-  const [shotsTaken, setShotsTaken] = useState<number>(0);
-  const [lost, setLost] = useState<boolean>(false);
   const [won, setWon] = useState<boolean>(false);
   const [resetTick, setResetTick] = useState<number>(0);
   const cratesRemainingRef = useRef<number>(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const [bestScores, setBestScores] = useLocalStorage<Record<string, number>>("pumpkinBestScores", {});
+  const keysRef = useRef<{ left: boolean; right: boolean; up: boolean }>({ left: false, right: false, up: false });
+  const facingRef = useRef<number>(1);
+  const bulletsRef = useRef<Body[]>([]);
+  const lastShotAtRef = useRef<number>(0);
+  const canJumpFramesRef = useRef<number>(0);
 
   useEffect(() => {
     function handleResize() {
@@ -92,102 +95,51 @@ export function PumpkinSmashGame() {
     World.add(world, crates);
     cratesRemainingRef.current = crates.length;
     setWon(false);
-    setLost(false);
 
-    // Slingshot pumpkin
-    const slingAnchor = { x: size.width * 0.18, y: size.height * 0.72 };
+    // Player pumpkin
     const pumpkinRadius = 20;
-    const pumpkin = Bodies.circle(slingAnchor.x + 2, slingAnchor.y, pumpkinRadius, {
+    const pumpkin = Bodies.circle(size.width * 0.15, size.height * 0.65, pumpkinRadius, {
       restitution: 0.4,
-      friction: 0.8,
+      friction: 0.2,
+      frictionAir: 0.02,
       density: 0.004,
       render: {
         fillStyle: "#ff6a00",
         sprite: { texture: "/pumpkin.svg", xScale: 0.12, yScale: 0.12 },
       } as any,
     });
-    const elastic = Constraint.create({
-      pointA: slingAnchor,
-      bodyB: pumpkin,
-      stiffness: 0.04,
-      damping: 0.02,
-      render: { strokeStyle: "#ff6a00", lineWidth: 2 },
-    });
-    World.add(world, [pumpkin, elastic]);
+    World.add(world, pumpkin);
 
-    // Visual base for slingshot
-    const base = Bodies.rectangle(slingAnchor.x - 10, slingAnchor.y + 15, 40, 20, {
-      isStatic: true,
-      render: { fillStyle: "#2b2036" },
-    });
-    World.add(world, base);
-
-    // Mouse control for drag and release
-    const canvas = render.canvas;
-    const mouse = Matter.Mouse.create(canvas);
-    const mouseConstraint = Matter.MouseConstraint.create(engine, {
-      mouse,
-      constraint: {
-        stiffness: 0.02,
-        render: { visible: false },
-      },
-    });
-    World.add(world, mouseConstraint);
-    render.mouse = mouse;
-
-    // Allow dragging pumpkin only; on release, detach after small delay
-    Events.on(mouseConstraint, "enddrag", (e: any) => {
-      if (e.body === pumpkin && (elastic as any).bodyB === pumpkin) {
-        setTimeout(() => {
-          (elastic as any).bodyB = null;
-          setShotsTaken((s) => s + 1);
-          playLaunch();
-        }, 20);
-      }
-    });
-
-    // On collision, damage crates - only when hit by pumpkin with sufficient speed
-    const DAMAGE_SPEED_THRESHOLD = 2.6;
+    // Bullet vs skull crates collision
     Events.on(engine, "collisionStart", (ev: IEventCollision<Engine>) => {
       for (const pair of ev.pairs) {
         const a = pair.bodyA;
         const b = pair.bodyB;
-        const involvesPumpkin = a === pumpkin || b === pumpkin;
-        if (!involvesPumpkin) continue;
-        const other = a === pumpkin ? b : a;
-        if (!(crates as Body[]).includes(other)) continue;
-
-        const relativeVx = (pumpkin.velocity?.x ?? 0) - (other.velocity?.x ?? 0);
-        const relativeVy = (pumpkin.velocity?.y ?? 0) - (other.velocity?.y ?? 0);
-        const relativeSpeed = Math.hypot(relativeVx, relativeVy);
-        if (relativeSpeed < DAMAGE_SPEED_THRESHOLD) continue;
-
-        const currentHealth = (other as any).health ?? 3;
-        const newHealth = Math.max(0, currentHealth - 1);
-        (other as any).health = newHealth;
-        if (newHealth === 0) {
+        const aIsBullet = (a as any).label === "bullet";
+        const bIsBullet = (b as any).label === "bullet";
+        if (!(aIsBullet || bIsBullet)) continue;
+        const bullet = aIsBullet ? a : b;
+        const other = aIsBullet ? b : a;
+        if ((crates as Body[]).includes(other)) {
           World.remove(world, other);
           cratesRemainingRef.current -= 1;
-          playHit();
           setScore((sc) => {
-            const nextScore = sc + 100;
+            const next = sc + 5;
             if (cratesRemainingRef.current <= 0 && !won) {
               setWon(true);
               playWin();
               setBestScores((prev) => {
                 const key = String(level);
                 const prior = prev[key] ?? 0;
-                if (nextScore > prior) {
-                  return { ...prev, [key]: nextScore };
-                }
+                if (next > prior) return { ...prev, [key]: next };
                 return prev;
               });
             }
-            return nextScore;
+            return next;
           });
-        } else {
-          const t = (other as any).health;
-          (other as any).render.fillStyle = t === 2 ? "#8a6a3e" : "#aa8d63";
+          spawnExplosion(other.position.x, other.position.y, world);
+          World.remove(world, bullet);
+          bulletsRef.current = bulletsRef.current.filter((bb) => bb !== bullet);
         }
       }
     });
@@ -197,63 +149,83 @@ export function PumpkinSmashGame() {
     Render.run(render);
     Runner.run(runner, engine);
 
-    // Reset controls: space to reload pumpkin
-    function handleKey(e: KeyboardEvent) {
-      if (e.code === "Space" && !(elastic as any).bodyB) {
-        Body.setPosition(pumpkin, { x: slingAnchor.x + 2, y: slingAnchor.y });
-        Body.setVelocity(pumpkin, { x: 0, y: 0 });
-        (elastic as any).bodyB = pumpkin;
+    // Keyboard controls
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code === "ArrowLeft") { keysRef.current.left = true; facingRef.current = -1; }
+      if (e.code === "ArrowRight") { keysRef.current.right = true; facingRef.current = 1; }
+      if (e.code === "ArrowUp") {
+        if (canJumpFramesRef.current > 0) {
+          Body.setVelocity(pumpkin, { x: pumpkin.velocity.x, y: -6 });
+          canJumpFramesRef.current = 0;
+        }
+      }
+      if (e.code === "Space") {
+        const now = Date.now();
+        const cooldownMs = 220;
+        if (now - lastShotAtRef.current > cooldownMs) {
+          lastShotAtRef.current = now;
+          const pos = { x: pumpkin.position.x + facingRef.current * (pumpkinRadius + 12), y: pumpkin.position.y - 4 };
+          const bullet = Bodies.circle(pos.x, pos.y, 6, {
+            frictionAir: 0.01,
+            restitution: 0,
+            density: 0.0005,
+            label: "bullet",
+            render: { fillStyle: "#2ea8ff" },
+          } as any);
+          Body.setVelocity(bullet, { x: facingRef.current * 12, y: 0 });
+          (bullet as any).birth = now;
+          World.add(world, bullet);
+          bulletsRef.current.push(bullet);
+          playShoot();
+        }
       }
     }
-    window.addEventListener("keydown", handleKey);
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.code === "ArrowLeft") { keysRef.current.left = false; }
+      if (e.code === "ArrowRight") { keysRef.current.right = false; }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
 
-    // Auto-reload logic and loss detection
-    const REST_SPEED_THRESHOLD = 0.15;
-    let restFrames = 0;
+    // Movement & housekeeping loop
     Events.on(engine, "afterUpdate", () => {
-      const elasticHasProjectile = Boolean((elastic as any).bodyB);
-      if (elasticHasProjectile || won || lost) {
-        restFrames = 0;
-        return;
+      // horizontal move
+      const moveSpeed = 4;
+      let desiredVx = 0;
+      if (keysRef.current.left) desiredVx -= moveSpeed;
+      if (keysRef.current.right) desiredVx += moveSpeed;
+      const clamped = Math.max(-moveSpeed, Math.min(moveSpeed, desiredVx));
+      Body.setVelocity(pumpkin, { x: clamped, y: pumpkin.velocity.y });
+
+      // ground check (coyote time)
+      const bodies = Composite.allBodies(world);
+      const region = {
+        min: { x: pumpkin.position.x - 12, y: pumpkin.position.y + pumpkinRadius - 1 },
+        max: { x: pumpkin.position.x + 12, y: pumpkin.position.y + pumpkinRadius + 6 },
+      };
+      const hits = Matter.Query.region(bodies, region).filter((b) => b !== pumpkin && (b.isStatic || b !== bulletsRef.current.find((bb) => bb === b)));
+      if (hits.length > 0) {
+        canJumpFramesRef.current = 8;
+      } else if (canJumpFramesRef.current > 0) {
+        canJumpFramesRef.current -= 1;
       }
-      const offscreen = pumpkin.position.x < -60 || pumpkin.position.x > size.width + 60 || pumpkin.position.y < -60 || pumpkin.position.y > size.height + 60;
-      const slow = (pumpkin as any).speed !== undefined ? (pumpkin as any).speed < REST_SPEED_THRESHOLD : Math.hypot(pumpkin.velocity.x, pumpkin.velocity.y) < REST_SPEED_THRESHOLD;
-      if (offscreen) {
-        // Attempt reload if shots remain, otherwise mark loss
-        const shotsPerLevel = Math.min(5, 3 + Math.floor((level - 1) / 2));
-        const shotsLeft = shotsPerLevel - shotsTaken;
-        if (shotsLeft > 0) {
-          Body.setPosition(pumpkin, { x: slingAnchor.x + 2, y: slingAnchor.y });
-          Body.setVelocity(pumpkin, { x: 0, y: 0 });
-          (elastic as any).bodyB = pumpkin;
-        } else if (cratesRemainingRef.current > 0) {
-          setLost(true);
+
+      // cleanup bullets
+      const now = Date.now();
+      for (const bullet of [...bulletsRef.current]) {
+        const tooOld = now - ((bullet as any).birth ?? now) > 3000;
+        const offscreen = bullet.position.x < -80 || bullet.position.x > size.width + 80 || bullet.position.y < -80 || bullet.position.y > size.height + 80;
+        if (tooOld || offscreen) {
+          World.remove(world, bullet);
+          bulletsRef.current = bulletsRef.current.filter((bb) => bb !== bullet);
         }
-        restFrames = 0;
-        return;
-      }
-      if (slow) {
-        restFrames += 1;
-      } else {
-        restFrames = 0;
-      }
-      if (restFrames > 30) {
-        const shotsPerLevel = Math.min(5, 3 + Math.floor((level - 1) / 2));
-        const shotsLeft = shotsPerLevel - shotsTaken;
-        if (shotsLeft > 0) {
-          Body.setPosition(pumpkin, { x: slingAnchor.x + 2, y: slingAnchor.y });
-          Body.setVelocity(pumpkin, { x: 0, y: 0 });
-          (elastic as any).bodyB = pumpkin;
-        } else if (cratesRemainingRef.current > 0) {
-          setLost(true);
-        }
-        restFrames = 0;
       }
     });
 
     // Cleanup
     return () => {
-      window.removeEventListener("keydown", handleKey);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
       Render.stop(render);
       Runner.stop(runner);
       World.clear(world, false);
@@ -296,9 +268,7 @@ export function PumpkinSmashGame() {
     }
   }
 
-  function playLaunch() {
-    playTone(220, 110, "sawtooth", 0.05);
-  }
+  function playShoot() { playTone(520, 90, "square", 0.05); }
   function playHit() {
     playTone(160, 90, "square", 0.06);
   }
@@ -307,11 +277,22 @@ export function PumpkinSmashGame() {
     setTimeout(() => playTone(660, 140, "triangle", 0.05), 120);
   }
 
+  function spawnExplosion(x: number, y: number, world: World) {
+    const parts: Body[] = [];
+    for (let i = 0; i < 6; i++) {
+      const p = Bodies.circle(x, y, 3, { isSensor: true, frictionAir: 0.06, render: { fillStyle: "#57b7ff" } } as any);
+      Body.setVelocity(p, { x: (Math.random() - 0.5) * 6, y: (Math.random() - 0.5) * 6 });
+      parts.push(p);
+    }
+    World.add(world, parts);
+    setTimeout(() => { for (const p of parts) World.remove(world, p); }, 400);
+  }
+
   return (
     <div className="w-full" ref={wrapperRef}>
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-white/90 text-[16px] tracking-wide">Smashing Pumpkins</h3>
-        <span className="text-white/50 text-[12px]">Drag the pumpkin, release to smash • Press Space to reload</span>
+        <span className="text-white/50 text-[12px]">Arrows: move/jump • Space: shoot</span>
       </div>
       <div className="relative">
         <div
@@ -326,18 +307,13 @@ export function PumpkinSmashGame() {
             <div className="rounded-md bg-black/30 px-3 py-1 text-[13px]">Level {level}</div>
             <div className="rounded-md bg-black/30 px-3 py-1 text-[13px]">Score {score}</div>
             <div className="rounded-md bg-black/30 px-3 py-1 text-[13px]">Best {(bestScores[String(level)] ?? 0)}</div>
-            <div className="rounded-md bg-black/30 px-3 py-1 text-[13px]">
-              Shots {shotsTaken}/{Math.min(5, 3 + Math.floor((level - 1) / 2))}
-            </div>
           </div>
           <div className="pointer-events-auto flex items-center justify-end gap-2">
             <button
               className="rounded-md border border-white/20 bg-black/40 px-3 py-1.5 text-[13px] text-white/90 hover:bg-black/50"
               onClick={() => {
-                setShotsTaken(0);
                 setScore(0);
                 setWon(false);
-                setLost(false);
                 setResetTick((t) => t + 1);
               }}
             >
@@ -346,10 +322,8 @@ export function PumpkinSmashGame() {
             <NeonButton
               label="Next Level"
               onClick={() => {
-                setShotsTaken(0);
                 setScore(0);
                 setWon(false);
-                setLost(false);
                 setLevel((lv) => lv + 1);
               }}
             />
@@ -365,10 +339,8 @@ export function PumpkinSmashGame() {
                 <button
                   className="rounded-md border border-white/20 bg-black/40 px-3 py-1.5 text-[13px] text-white/90 hover:bg-black/50"
                   onClick={() => {
-                    setShotsTaken(0);
                     setScore(0);
                     setWon(false);
-                    setLost(false);
                     setResetTick((t) => t + 1);
                   }}
                 >
@@ -377,36 +349,11 @@ export function PumpkinSmashGame() {
                 <NeonButton
                   label="Next Level"
                   onClick={() => {
-                    setShotsTaken(0);
                     setScore(0);
                     setWon(false);
-                    setLost(false);
                     setLevel((lv) => lv + 1);
                   }}
                 />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {lost && !won && (
-          <div className="pointer-events-auto absolute inset-0 flex items-center justify-center">
-            <div className="rounded-xl border border-white/15 bg-black/70 p-5 text-center backdrop-blur-md">
-              <div className="mb-2 text-[18px] font-semibold text-white">Level Failed</div>
-              <div className="mb-4 text-[14px] text-white/80">Out of pumpkins. Try again?</div>
-              <div className="flex items-center justify-center gap-2">
-                <button
-                  className="rounded-md border border-white/20 bg-black/40 px-3 py-1.5 text-[13px] text-white/90 hover:bg-black/50"
-                  onClick={() => {
-                    setShotsTaken(0);
-                    setScore(0);
-                    setWon(false);
-                    setLost(false);
-                    setResetTick((t) => t + 1);
-                  }}
-                >
-                  Retry Level
-                </button>
               </div>
             </div>
           </div>
