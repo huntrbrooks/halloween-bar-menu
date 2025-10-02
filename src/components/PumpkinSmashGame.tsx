@@ -36,6 +36,13 @@ export function PumpkinSmashGame() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // Ensure the game has focus so Space does not trigger page scroll/clicks
+  useEffect(() => {
+    if (wrapperRef.current) {
+      wrapperRef.current.focus();
+    }
+  }, []);
+
   useEffect(() => {
     if (!hostRef.current || size.width === 0 || size.height === 0) return;
 
@@ -150,7 +157,19 @@ export function PumpkinSmashGame() {
     Runner.run(runner, engine);
 
     // Keyboard controls
+    function shouldCapture(e: KeyboardEvent) {
+      // Only capture when the game wrapper is focused or the target lies within it
+      const target = e.target as Node | null;
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return false;
+      return document.activeElement === wrapper || (target ? wrapper.contains(target) : false) || document.activeElement === document.body;
+    }
+
     function onKeyDown(e: KeyboardEvent) {
+      if (!shouldCapture(e)) return;
+      if (e.code === "ArrowLeft" || e.code === "ArrowRight" || e.code === "ArrowUp" || e.code === "Space") {
+        e.preventDefault();
+      }
       if (e.code === "ArrowLeft") { keysRef.current.left = true; facingRef.current = -1; }
       if (e.code === "ArrowRight") { keysRef.current.right = true; facingRef.current = 1; }
       if (e.code === "ArrowUp") {
@@ -181,11 +200,15 @@ export function PumpkinSmashGame() {
       }
     }
     function onKeyUp(e: KeyboardEvent) {
+      if (!shouldCapture(e)) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+      }
       if (e.code === "ArrowLeft") { keysRef.current.left = false; }
       if (e.code === "ArrowRight") { keysRef.current.right = false; }
     }
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("keydown", onKeyDown, { passive: false });
+    window.addEventListener("keyup", onKeyUp, { passive: false });
 
     // Movement & housekeeping loop
     Events.on(engine, "afterUpdate", () => {
@@ -224,8 +247,8 @@ export function PumpkinSmashGame() {
 
     // Cleanup
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("keydown", onKeyDown as any);
+      window.removeEventListener("keyup", onKeyUp as any);
       Render.stop(render);
       Runner.stop(runner);
       World.clear(world, false);
@@ -289,7 +312,7 @@ export function PumpkinSmashGame() {
   }
 
   return (
-    <div className="w-full" ref={wrapperRef}>
+    <div className="w-full" ref={wrapperRef} tabIndex={0} onMouseDown={() => wrapperRef.current?.focus()} onTouchStart={() => wrapperRef.current?.focus()} role="application">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-white/90 text-[16px] tracking-wide">Smashing Pumpkins</h3>
         <span className="text-white/50 text-[12px]">Arrows: move/jump • Space: shoot</span>
